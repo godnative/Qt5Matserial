@@ -1,0 +1,3 @@
+一个简单的串口助手
+基于PyQt5、Matplotlib、serial
+可以显示数据波形
