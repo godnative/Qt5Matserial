@@ -2,13 +2,9 @@ import sys
 from PyQt5.QtWidgets import QApplication, QMessageBox, QWidget
 from PyQt5.QtSerialPort import QSerialPort, QSerialPortInfo
 import time
-
-import serial
-import serial.tools.list_ports
-import threading
-from threading import Thread
-import stopThreading
+import binascii
 from QMS_ui_form import Ui_Form
+import re
 
 class Pyqt5_Serial(QWidget, Ui_Form):
     def __init__(self):
@@ -17,6 +13,7 @@ class Pyqt5_Serial(QWidget, Ui_Form):
         self.init()
         self.setWindowTitle("串口数据")
         self.cur_serial = QSerialPort()
+        self.cur_serial.readyRead.connect(self.Com_Receive_Data)  # 接收数据
         self.port_check()
         self.sendbuff = ''
         self.sentrawdata = [0xa5, 0xa1, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xaa]
@@ -28,9 +25,6 @@ class Pyqt5_Serial(QWidget, Ui_Form):
     def init(self):
         # 串口检测按钮
         self.s1__box_1.clicked.connect(self.port_check)
-
-        # 串口信息显示
-        self.s1__box_2.currentTextChanged.connect(self.port_imf)
 
         # 打开串口按钮
         self.open_button.clicked.connect(self.port_open)
@@ -61,6 +55,7 @@ class Pyqt5_Serial(QWidget, Ui_Form):
         self.check_autosent.setEnabled(False)
         self.button_sentmode2.setEnabled(False)
 
+
     # 串口检测
     def port_check(self):
         # 检测所有存在的串口，将信息存储在字典中
@@ -73,120 +68,59 @@ class Pyqt5_Serial(QWidget, Ui_Form):
                 self.s1__box_2.addItem(info.portName())
                 com.close()
 
-
-        self.Com_Dict = {}
-        port_list = list(serial.tools.list_ports.comports())
-        self.s1__box_2.clear()
-        for port in port_list:
-            self.Com_Dict["%s" % port[0]] = "%s" % port[1]
-            self.s1__box_2.addItem(port[0])
-        if len(self.Com_Dict) == 0:
-            self.state_label.setText(" 无串口")
-
-    # 串口信息
-    def port_imf(self):
-        # 显示选定的串口的详细信息
-        imf_s = self.s1__box_2.currentText()
-        if imf_s != "":
-            self.state_label.setText(self.Com_Dict[self.s1__box_2.currentText()])
-
     # 打开串口
     def port_open(self):
-        self.cur_serial.port = self.s1__box_2.currentText()
-        self.cur_serial.baudrate = int(self.s1__box_3.currentText())
-        self.cur_serial.bytesize = int(self.s1__box_4.currentText())
-        self.cur_serial.stopbits = int(self.s1__box_6.currentText())
-        self.cur_serial.parity = self.s1__box_5.currentText()
-        self.cur_serial.timeout = 0
-
+        comName = self.s1__box_2.currentText()
+        comBaud = int(self.s1__box_3.currentText())
+        self.cur_serial.setPortName(comName)
         try:
-            self.cur_serial.open()
+            if self.cur_serial.open(QSerialPort.ReadWrite) == False:
+                QMessageBox.critical(self, '严重错误', '串口打开失败')
+                return
         except:
-            QMessageBox.critical(self, "Port Error", "此串口不能被打开！")
-            return None
-
-        # 打开串口接收定时器，周期为2ms
-        self.serial_rec_thread = Thread(target=self.rec_concurrency)
-        self.serial_rec_thread.start()
-        print('正在监听端口:%s\n' % self.s1__box_2.currentText())
-        # self.timer_rec.start(1000)
-        global cur_serial_open_flag
-        cur_serial_open_flag = True
-        if self.cur_serial.isOpen():
-            self.open_button.setEnabled(False)
-            self.close_button.setEnabled(True)
-            self.formGroupBox1.setTitle("串口状态（已开启）")
-            self.button_sentmode1.setEnabled(True)
-            self.button_sentdata_2.setEnabled(True)
-            self.check_autosent.setEnabled(True)
-            self.button_sentmode2.setEnabled(True)
+            QMessageBox.critical(self, '严重错误', '串口打开失败')
+            return
+        self.cur_serial.setBaudRate(comBaud)
+        self.open_button.setEnabled(False)
+        self.close_button.setEnabled(True)
+        self.formGroupBox1.setTitle("串口状态（已开启）")
+        self.button_sentmode1.setEnabled(True)
+        self.button_sentdata_2.setEnabled(True)
+        self.check_autosent.setEnabled(True)
+        self.button_sentmode2.setEnabled(True)
 
     # 关闭串口
     def port_close(self):
-        # 关闭线程
-        try:
-            if self.serial_rec_thread is None:
-                print('线程未开启')
-            elif self.serial_rec_thread.is_alive():
-                stopThreading.stop_thread(self.serial_rec_thread)
-                print('线程关闭')
-            else:
-                print('线程已关闭')
-        except Exception as ret:
-            msg = '错误 as %s\n' % str(ret)
-            print(msg)
-        # 关闭端口
-        try:
-            self.open_button.setEnabled(True)
-            self.close_button.setEnabled(False)
-            # 接收数据数目置零
-            self.data_num_received = 0
-            self.lineEdit.setText(str(self.data_num_received))
-            self.formGroupBox1.setTitle("串口状态（已关闭）")
-            self.button_sentmode1.setEnabled(False)
-            self.button_sentdata_2.setEnabled(False)
-            self.check_autosent.setEnabled(False)
-            self.button_sentmode2.setEnabled(False)
-        except Exception as ret:
-            msg = '错误 as %s\n' % str(ret)
-            print(msg)
-        else:
-            self.cur_serial.close()
+        self.cur_serial.close()
+        self.open_button.setEnabled(True)
+        self.close_button.setEnabled(False)
+        # 接收数据数目置零
+        self.data_num_received = 0
+        self.lineEdit.setText(str(self.data_num_received))
+        self.formGroupBox1.setTitle("串口状态（已关闭）")
+        self.button_sentmode1.setEnabled(False)
+        self.button_sentdata_2.setEnabled(False)
+        self.check_autosent.setEnabled(False)
+        self.button_sentmode2.setEnabled(False)
 
-    # 接收数据
-    def rec_concurrency(self):
-        """
-        功能函数，供创建线程的方法；
-        使用子线程用于监听并创建连接，使主线程可以继续运行，以免无响应
-        使用非阻塞式并发用于接收客户端消息，减少系统资源浪费，使软件轻量化
-        :return:None
-        """
-        while True:
+
+    def Com_Receive_Data(self):
+        try:
+            rxData = bytes(self.cur_serial.readAll())
+        except:
+            QMessageBox.critical(self, '严重错误', '串口接收数据错误')
+        if self.hex_receive.isChecked() == False:
             try:
-                data = self.cur_serial.readline()
-            except Exception as ret:
-                time.sleep(0.02)
-            else:
-                if len(data) > 0:
-                    if self.hex_receive.checkState():
-                        out_s = ''
-                        for i in range(0, len(data)):
-                            out_s = out_s + '{:02X}'.format(data[i]) + ' '
-                        self.s2__receive_text.insertPlainText(out_s)
-                    else:
-                        # 串口接收到的字符串为b'123',要转化成unicode字符串才能输出到窗口中去
-                        self.s2__receive_text.insertPlainText(data.decode('iso-8859-1'))
-
-                    # 统计接收字符的数量
-                    self.data_num_received = len(data)
-                    self.lineEdit.setText(str(self.data_num_received))
-
-                    # 获取到text光标
-                    textCursor = self.s2__receive_text.textCursor()
-                    # 滚动到底部
-                    textCursor.movePosition(textCursor.End)
-                    # 设置光标到text中去
-                    self.s2__receive_text.setTextCursor(textCursor)
+                self.textEdit_Recive.insertPlainText(rxData.decode('UTF-8'))
+            except:
+                pass
+        else:
+            Data = binascii.b2a_hex(rxData).decode('ascii')
+            # re 正则表达式 (.{2}) 匹配两个字母
+            hexStr = ' 0x'.join(re.findall('(.{2})', Data))
+            # 补齐第一个 0x
+            hexStr = '0x' + hexStr
+            self.s2__receive_text.insertPlainText(hexStr)
 
     # 清除显示
     def receive_data_clear(self):
@@ -249,23 +183,17 @@ class Pyqt5_Serial(QWidget, Ui_Form):
         da5 = st_fr % 100
         self.sendbuff = "A5 A1 00 %02d %02d %02d %02d %02d AA" % (da1, da2, da3, da4, da5)
         self.textBrowser_sentdata.setText(self.sendbuff)
-        if self.cur_serial.isOpen():
-            if ' ' in self.sendbuff:
-                hex_data = self.sendbuff.replace(' ', '')  # 移除空格
-            try:
-                byte_data = bytes.fromhex(hex_data)  # 直接将16进制字符串转换为字节
+        if ' ' in self.sendbuff:
+            hex_data = self.sendbuff.replace(' ', '')  # 移除空格
+        try:
+            byte_data = bytes.fromhex(hex_data)  # 直接将16进制字符串转换为字节
 
-                # 发送数据
-                if self.cur_serial.is_open:
-                    self.cur_serial.write(byte_data)
-                    self.cur_serial.flush()
-                    print("数据已发送: ", hex_data)
-                else:
-                    print("串口未打开")
-            except ValueError as e:
-                print("数据格式错误: ", e)
-        else:
-            print(self.sentrawdata)
+            # 发送数据
+            self.cur_serial.write(byte_data)
+            self.cur_serial.flush()
+            print("数据已发送: ", hex_data)
+        except ValueError as e:
+            print("数据格式错误: ", e)
 
     # mode2 自动发送
     def chagne_mode2_autosent(self):
