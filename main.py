@@ -2,27 +2,52 @@ import sys
 from PyQt5.QtWidgets import QApplication, QMessageBox, QWidget
 from PyQt5.QtSerialPort import QSerialPort, QSerialPortInfo
 from PyQt5.QtCore import QTimer
-import time
+from PyQt5.QtGui import QIntValidator
 import binascii
 from QMS_ui_form import Ui_Form
 import re
 
+
 class Pyqt5_Serial(QWidget, Ui_Form):
     def __init__(self):
         super(Pyqt5_Serial, self).__init__()
+        self.mode2_step = 1
+        self.start_fr = 5075000
+        self.mode2_curfr = 5075000
         self.setupUi(self)
+        self.createObj()
         self.init()
         self.setWindowTitle("串口数据")
-        self.cur_serial = QSerialPort()
-        self.cur_serial.readyRead.connect(self.Com_Receive_Data)  # 接收数据
+
         self.port_check()
         self.sendbuff = ''
-        self.sentrawdata = [0xa5, 0xa1, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xaa]
-        self.mode_start = False
+
         # 接收数据和发送数据数目置零
         self.data_num_received = 0
-        self.lineEdit.setText(str(self.data_num_received))
+        self.lineEdit.setText("0")
 
+        # 无效按钮
+        self.button_sentmode1.setEnabled(False)
+        self.button_sentdata_2.setEnabled(False)
+        self.button_sentmode2.setEnabled(False)
+        self.toolButton_addcurfr.setEnabled(False)
+        self.toolButton_deccurfr.setEnabled(False)
+        self.button_sentmode1_stop.setEnabled(False)
+
+        # 限制文本框数字输入
+        self.lineEdit_mode1_startfr.setValidator(QIntValidator(self.lineEdit_mode1_startfr))
+        self.lineEdit_mode1_stopfr.setValidator(QIntValidator(self.lineEdit_mode1_stopfr))
+        self.lineEdit_mode1_step.setValidator(QIntValidator(self.lineEdit_mode1_startfr))
+        self.lineEdit_5.setValidator(QIntValidator(self.lineEdit_5))
+        self.lineEdit_mode2_curfr.setValidator(QIntValidator(self.lineEdit_mode2_curfr))
+        self.lineEdit_mode2_step.setValidator(QIntValidator(self.lineEdit_mode2_step))
+
+    # 创建对象
+    def createObj(self):
+        self.cur_serial = QSerialPort()
+        self.timer = QTimer(self)  # 初始化一个定时器
+
+    # 绑定信号 槽
     def init(self):
         # 串口检测按钮
         self.s1__box_1.clicked.connect(self.port_check)
@@ -36,30 +61,27 @@ class Pyqt5_Serial(QWidget, Ui_Form):
         # 清除接收窗口
         self.s2__clear_button.clicked.connect(self.receive_data_clear)
 
+        ###     mode2                                                            ###
         # mode2，刷新当前频率
-        self.verticalScrollBar_curfr.valueChanged.connect(self.reflash_curfr_mode2)
-        self.reflash_curfr_mode2()
+        self.lineEdit_mode2_curfr.textChanged.connect(self.update_mode2_curfr)
+        self.lineEdit_mode2_step.textChanged.connect(self.update_mode2_step)
+        self.toolButton_addcurfr.clicked.connect(self.mode2_add_curfr)
+        self.toolButton_deccurfr.clicked.connect(self.mode2_dec_curfr)
 
-        # mode2 自动发送控制所有发送button
-        #self.check_autosent.clicked.connect(self.chagne_mode2_autosent)
         # mode2 发送
         self.button_sentmode2.clicked.connect(self.sent_mode2_data)
 
         self.button_sentdata_2.clicked.connect(self.sent_check_data)
 
+        ###     mode1                                                            ###
         # mode1 发送
         self.button_sentmode1.clicked.connect(self.mode1_sent_data)
         self.button_sentmode1_stop.clicked.connect(self.mode1_stop_sent_data)
 
-        self.timer = QTimer(self) #初始化一个定时器
-        self.timer.timeout.connect(self.mode1_sent_data_timer) #计时结束调用operate()方法
-        #self.timer.start(100) #设置计时间隔 100ms 并启动
+        self.timer.timeout.connect(self.mode1_sent_data_timer)  # 计时结束调用operate()方法
+        # self.timer.start(100) #设置计时间隔 100ms 并启动
 
-        self.button_sentmode1.setEnabled(False)
-        self.button_sentdata_2.setEnabled(False)
-        self.check_autosent.setEnabled(False)
-        self.button_sentmode2.setEnabled(False)
-
+        self.cur_serial.readyRead.connect(self.Com_Receive_Data)  # 接收数据
 
     # 串口检测
     def port_check(self):
@@ -91,8 +113,10 @@ class Pyqt5_Serial(QWidget, Ui_Form):
         self.formGroupBox1.setTitle("串口状态（已开启）")
         self.button_sentmode1.setEnabled(True)
         self.button_sentdata_2.setEnabled(True)
-        self.check_autosent.setEnabled(True)
         self.button_sentmode2.setEnabled(True)
+        self.toolButton_addcurfr.setEnabled(True)
+        self.toolButton_deccurfr.setEnabled(True)
+        self.button_sentmode1_stop.setEnabled(False)
 
     # 关闭串口
     def port_close(self):
@@ -105,10 +129,12 @@ class Pyqt5_Serial(QWidget, Ui_Form):
         self.formGroupBox1.setTitle("串口状态（已关闭）")
         self.button_sentmode1.setEnabled(False)
         self.button_sentdata_2.setEnabled(False)
-        self.check_autosent.setEnabled(False)
         self.button_sentmode2.setEnabled(False)
+        self.toolButton_addcurfr.setEnabled(False)
+        self.toolButton_deccurfr.setEnabled(False)
+        self.button_sentmode1_stop.setEnabled(False)
 
-
+    # 接收显示数据
     def Com_Receive_Data(self):
         try:
             rxData = bytes(self.cur_serial.readAll())
@@ -132,37 +158,6 @@ class Pyqt5_Serial(QWidget, Ui_Form):
     def receive_data_clear(self):
         self.s2__receive_text.setText("")
 
-    # mode1 停止发送
-    def mode1_stop_sent_data(self):
-        self.button_sentmode1.setEnabled(True)
-        self.button_sentmode1_stop.setEnabled(False)
-        self.timer.stop()
-
-    def mode1_sent_data_timer(self):
-        self.timer.stop()
-        if self.start_fr <= self.end_fr:
-            self.show_and_sentdata(self.start_fr)
-            self.start_fr = self.start_fr + self.step
-            self.timer.start(self.unt_ms)
-        else:
-            pass
-    # mode1 发送
-    def mode1_sent_data(self):
-        try:
-            self.start_fr = int(self.lineEdit_startfr.text())
-            self.end_fr = int(self.lineEdit_stopfr.text())
-            self.step = int(self.lineEdit_step.text())
-            self.unt_ms = int(self.lineEdit_5.text())
-        except Exception as ret:
-            print(ret)
-            return
-        else:
-            if self.start_fr >= self.end_fr or self.step <= 0:
-                return
-            self.button_sentmode1.setEnabled(False)
-            self.button_sentmode1_stop.setEnabled(True)
-            self.timer.start(self.unt_ms)
-
     # 发送检查数据
     def sent_check_data(self):
         check = bytes([0xa5, 0x30, 0xaa])
@@ -171,16 +166,7 @@ class Pyqt5_Serial(QWidget, Ui_Form):
         self.cur_serial.flush()
         print("数据已发送: ", check)
 
-    # mode2 发送
-    def sent_mode2_data(self):
-        self.show_and_sentdata(self.verticalScrollBar_curfr.value() * 1000)
-
-    # 刷新mode2当前频率
-    def reflash_curfr_mode2(self):
-        self.label_curfr_mode2.setText(str(self.verticalScrollBar_curfr.value()))
-        #if (self.check_autosent.checkState()):
-            #self.show_and_sentdata(self.verticalScrollBar_curfr.value() * 1000)
-
+    # 发送并显示数据
     def show_and_sentdata(self, st_fr):
         da1 = (st_fr / 100000000)
         da2 = (st_fr / 1000000) % 100
@@ -200,16 +186,73 @@ class Pyqt5_Serial(QWidget, Ui_Form):
             print("数据已发送: ", hex_data)
         except ValueError as e:
             print("数据格式错误: ", e)
+    ###                              mode1                           ###
+    # mode1 停止发送
+    def mode1_stop_sent_data(self):
+        self.button_sentmode1.setEnabled(True)
+        self.button_sentmode1_stop.setEnabled(False)
+        self.timer.stop()
 
-    # mode2 自动发送
-    def chagne_mode2_autosent(self):
-        if self.check_autosent.checkState():
-            self.button_sentmode1.setEnabled(False)
-            self.button_sentdata_2.setEnabled(False)
+    def mode1_sent_data_timer(self):
+        self.timer.stop()
+        if self.start_fr <= self.end_fr:
+            self.show_and_sentdata(self.start_fr * 1000)
+            self.start_fr = self.start_fr + self.step
+            self.timer.start(self.unt_ms)
         else:
-            self.button_sentmode1.setEnabled(True)
-            self.button_sentdata_2.setEnabled(True)
+            pass
 
+    # mode1 发送
+    def mode1_sent_data(self):
+        try:
+            self.start_fr = int(self.lineEdit_mode1_startfr.text())
+            self.end_fr = int(self.lineEdit_mode1_stopfr.text())
+            self.step = int(self.lineEdit_mode1_step.text())
+            self.unt_ms = int(self.lineEdit_5.text())
+        except Exception as ret:
+            print(ret)
+            return
+        else:
+            if self.start_fr >= self.end_fr or self.step <= 0:
+                return
+            self.button_sentmode1.setEnabled(False)
+            self.button_sentmode1_stop.setEnabled(True)
+            self.timer.start(self.unt_ms)
+
+
+    
+    # mode2 发送
+    def sent_mode2_data(self):
+        self.show_and_sentdata(self.mode2_curfr * 1000)
+
+    # 同步步进频率
+    def update_mode2_step(self):
+        self.mode2_step = int(self.lineEdit_mode2_step.text())
+
+    # 同步当前频率
+    def update_mode2_curfr(self):
+        self.mode2_curfr = int(self.lineEdit_mode2_curfr.text())
+        if self.mode2_curfr > 6000000 :
+            self.mode2_curfr = 6000000
+        elif self.mode2_curfr < 5000000 :
+            self.mode2_curfr = 5000000
+
+    
+    # 增加当前频率
+    def mode2_add_curfr(self):
+        self.mode2_curfr = self.mode2_curfr + self.mode2_step
+        if self.mode2_curfr > 6000000:
+            self.mode2_curfr = 6000000
+        self.lineEdit_mode2_curfr.setText(str(self.mode2_curfr))
+        self.show_and_sentdata(self.mode2_curfr * 1000)
+
+    # 减少当前频率
+    def mode2_dec_curfr(self):
+        self.mode2_curfr = self.mode2_curfr - self.mode2_step
+        if self.mode2_curfr < 5000000:
+            self.mode2_curfr = 5000000
+        self.lineEdit_mode2_curfr.setText(str(self.mode2_curfr))
+        self.show_and_sentdata(self.mode2_curfr * 1000)
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
