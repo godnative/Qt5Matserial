@@ -14,7 +14,7 @@ from PyQt5 import QtCore, QtGui, QtWidgets
 class Ui_Form(object):
     def setupUi(self, Form):
         Form.setObjectName("Form")
-        Form.resize(1093, 415)
+        Form.resize(1039, 415)
         self.formGroupBox = QtWidgets.QGroupBox(Form)
         self.formGroupBox.setGeometry(QtCore.QRect(20, 20, 167, 301))
         self.formGroupBox.setObjectName("formGroupBox")
@@ -92,7 +92,7 @@ class Ui_Form(object):
         self.state_label.setObjectName("state_label")
         self.formLayout.setWidget(2, QtWidgets.QFormLayout.SpanningRole, self.state_label)
         self.verticalGroupBox = QtWidgets.QGroupBox(Form)
-        self.verticalGroupBox.setGeometry(QtCore.QRect(680, 10, 401, 401))
+        self.verticalGroupBox.setGeometry(QtCore.QRect(680, 10, 321, 401))
         self.verticalGroupBox.setObjectName("verticalGroupBox")
         self.verticalLayout = QtWidgets.QVBoxLayout(self.verticalGroupBox)
         self.verticalLayout.setContentsMargins(10, 10, 10, 10)

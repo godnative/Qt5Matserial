@@ -1,6 +1,7 @@
 import sys
 from PyQt5.QtWidgets import QApplication, QMessageBox, QWidget
 from PyQt5.QtSerialPort import QSerialPort, QSerialPortInfo
+from PyQt5.QtCore import QTimer
 import time
 import binascii
 from QMS_ui_form import Ui_Form
@@ -40,7 +41,7 @@ class Pyqt5_Serial(QWidget, Ui_Form):
         self.reflash_curfr_mode2()
 
         # mode2 自动发送控制所有发送button
-        self.check_autosent.clicked.connect(self.chagne_mode2_autosent)
+        #self.check_autosent.clicked.connect(self.chagne_mode2_autosent)
         # mode2 发送
         self.button_sentmode2.clicked.connect(self.sent_mode2_data)
 
@@ -48,7 +49,11 @@ class Pyqt5_Serial(QWidget, Ui_Form):
 
         # mode1 发送
         self.button_sentmode1.clicked.connect(self.mode1_sent_data)
-        self.button_sentmode1_stop.clicked.connect(self.mode1_sent_data)
+        self.button_sentmode1_stop.clicked.connect(self.mode1_stop_sent_data)
+
+        self.timer = QTimer(self) #初始化一个定时器
+        self.timer.timeout.connect(self.mode1_sent_data_timer) #计时结束调用operate()方法
+        #self.timer.start(100) #设置计时间隔 100ms 并启动
 
         self.button_sentmode1.setEnabled(False)
         self.button_sentdata_2.setEnabled(False)
@@ -121,6 +126,7 @@ class Pyqt5_Serial(QWidget, Ui_Form):
             # 补齐第一个 0x
             hexStr = '0x' + hexStr
             self.s2__receive_text.insertPlainText(hexStr)
+            self.s2__receive_text.insertPlainText(" ")
 
     # 清除显示
     def receive_data_clear(self):
@@ -130,40 +136,40 @@ class Pyqt5_Serial(QWidget, Ui_Form):
     def mode1_stop_sent_data(self):
         self.button_sentmode1.setEnabled(True)
         self.button_sentmode1_stop.setEnabled(False)
-        self.mode_start = False
+        self.timer.stop()
 
+    def mode1_sent_data_timer(self):
+        self.timer.stop()
+        if self.start_fr <= self.end_fr:
+            self.show_and_sentdata(self.start_fr)
+            self.start_fr = self.start_fr + self.step
+            self.timer.start(self.unt_ms)
+        else:
+            pass
     # mode1 发送
     def mode1_sent_data(self):
         try:
-            start_fr = int(self.lineEdit_startfr.text())
-            end_fr = int(self.lineEdit_stopfr.text())
-            step = int(self.lineEdit_step.text())
-            unt_ms = int(self.lineEdit_5.text())
+            self.start_fr = int(self.lineEdit_startfr.text())
+            self.end_fr = int(self.lineEdit_stopfr.text())
+            self.step = int(self.lineEdit_step.text())
+            self.unt_ms = int(self.lineEdit_5.text())
         except Exception as ret:
             print(ret)
             return
         else:
-            if start_fr >= end_fr or step <= 0:
+            if self.start_fr >= self.end_fr or self.step <= 0:
                 return
-            self.mode_start = True
             self.button_sentmode1.setEnabled(False)
             self.button_sentmode1_stop.setEnabled(True)
-            while start_fr <= end_fr and self.mode_start:
-                self.show_and_sentdata(start_fr)
-                time.sleep(unt_ms / 1000)
-                start_fr = start_fr + step
+            self.timer.start(self.unt_ms)
 
     # 发送检查数据
     def sent_check_data(self):
         check = bytes([0xa5, 0x30, 0xaa])
-
         self.textBrowser_sentdata.setText("A5 30 AA")
-        if self.cur_serial.isOpen():
-            # 发送数据
-            if self.cur_serial.is_open:
-                self.cur_serial.write(check)
-                self.cur_serial.flush()
-                print("数据已发送: ", check)
+        self.cur_serial.write(check)
+        self.cur_serial.flush()
+        print("数据已发送: ", check)
 
     # mode2 发送
     def sent_mode2_data(self):
@@ -172,8 +178,8 @@ class Pyqt5_Serial(QWidget, Ui_Form):
     # 刷新mode2当前频率
     def reflash_curfr_mode2(self):
         self.label_curfr_mode2.setText(str(self.verticalScrollBar_curfr.value()))
-        if (self.check_autosent.checkState()):
-            self.show_sentdata(self.verticalScrollBar_curfr.value() * 1000)
+        #if (self.check_autosent.checkState()):
+            #self.show_and_sentdata(self.verticalScrollBar_curfr.value() * 1000)
 
     def show_and_sentdata(self, st_fr):
         da1 = (st_fr / 100000000)
